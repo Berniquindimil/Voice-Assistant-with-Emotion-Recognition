@@ -210,8 +210,8 @@ def FER_live_cam():
 
      
     # Read the Caffe face detector.
-    model_path = 'RFB-320/RFB-320.caffemodel'
-    proto_path = 'RFB-320/RFB-320.prototxt'
+    model_path = '/Users/bernardoquindimil/Code/Berniquindimil/Proyect/learnopencv/RFB-320/RFB-320.caffemodel'
+    proto_path = '/Users/bernardoquindimil/Code/Berniquindimil/Proyect/learnopencv/RFB-320/RFB-320.prototxt'
     net = dnn.readNetFromCaffe(proto_path, model_path)
     input_size = [320, 240]
     width = input_size[0]
