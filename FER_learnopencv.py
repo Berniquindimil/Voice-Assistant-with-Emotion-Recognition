@@ -6,6 +6,11 @@ import os
 from cv2 import dnn
 from math import ceil
 
+from tensorflow.keras.models import load_model
+from tensorflow.keras.layers import Dense, Dropout, Flatten, BatchNormalization
+from tensorflow.keras.layers import Conv2D, MaxPooling2D
+from tensorflow.keras.models import Sequential
+
 image_mean = np.array([127, 127, 127])
 image_std = 128.0
 iou_threshold = 0.3
@@ -171,9 +176,38 @@ def FER_live_cam():
                          cv2.VideoWriter_fourcc(*'MJPG'),
                          10, size)
  
-    # Read ONNX model
-    model = 'onnx_model.onnx'
-    model = cv2.dnn.readNetFromONNX('emotion-ferplus-8.onnx')
+    # Define the model architecture
+    model = Sequential()
+    model.add(Conv2D(32, kernel_size=(3, 3), activation='relu', input_shape=(48,48,1)))
+    model.add(BatchNormalization())
+    model.add(Conv2D(64, kernel_size=(3, 3), activation='relu'))
+    model.add(BatchNormalization())
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.25))
+
+    model.add(Conv2D(128, kernel_size=(3, 3), activation='relu'))
+    model.add(BatchNormalization())
+    model.add(Conv2D(128, kernel_size=(3, 3), activation='relu'))
+    model.add(BatchNormalization())
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.25))
+
+    model.add(Conv2D(256, kernel_size=(3, 3), activation='relu'))
+    model.add(BatchNormalization())
+    model.add(Conv2D(256, kernel_size=(3, 3), activation='relu'))
+    model.add(BatchNormalization())
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.25))
+
+    model.add(Flatten())
+    model.add(Dense(256, activation='relu'))
+    model.add(BatchNormalization())
+    model.add(Dropout(0.5))
+    model.add(Dense(7, activation='softmax'))
+
+    # Load the weidhts of the model
+    model.load_weights('model_weights.weights.h5')
+
      
     # Read the Caffe face detector.
     model_path = 'RFB-320/RFB-320.caffemodel'
