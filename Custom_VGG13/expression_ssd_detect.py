@@ -175,8 +175,8 @@ def FER_live_cam():
         6: 'fear'
     }
 
-    cap = cv2.VideoCapture('video3.mp4')
-    # cap = cv2.VideoCapture(0)
+    # cap = cv2.VideoCapture('video3.mp4')
+    cap = cv2.VideoCapture(0)
 
     frame_width = int(cap.get(3))
     frame_height = int(cap.get(4))
@@ -187,11 +187,11 @@ def FER_live_cam():
 
     # Read ONNX model
     model = 'onnx_model.onnx'
-    model = cv2.dnn.readNetFromONNX('emotion-ferplus-8.onnx')
+    model = cv2.dnn.readNetFromONNX('/Users/bernardoquindimil/Code/Berniquindimil/Proyect/Custom_VGG13/emotion-ferplus-8.onnx')
     
     # Read the Caffe face detector.
-    model_path = 'RFB-320/RFB-320.caffemodel'
-    proto_path = 'RFB-320/RFB-320.prototxt'
+    model_path = '/Users/bernardoquindimil/Code/Berniquindimil/Proyect/Custom_VGG13/RFB-320/RFB-320.caffemodel'
+    proto_path = '/Users/bernardoquindimil/Code/Berniquindimil/Proyect/Custom_VGG13/RFB-320/RFB-320.prototxt'
     net = dnn.readNetFromCaffe(proto_path, model_path)
     input_size = [320, 240]
     width = input_size[0]
