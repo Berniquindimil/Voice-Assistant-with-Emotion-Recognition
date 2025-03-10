@@ -1,7 +1,7 @@
 from tensorflow.keras.layers import Dense, Dropout, Flatten, BatchNormalization
 from tensorflow.keras.layers import Conv2D, MaxPooling2D
 from tensorflow.keras.models import Sequential
-import tensorflow as tf 
+import tensorflow as tf
 
 # Define the model architecture
 model = Sequential()
