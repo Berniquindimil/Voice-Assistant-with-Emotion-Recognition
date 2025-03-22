@@ -12,22 +12,28 @@ import os
 from cv2 import dnn
 from math import ceil
 
-image_mean = np.array([127, 127, 127])
-image_std = 128.0
-iou_threshold = 0.3
-center_variance = 0.1
-size_variance = 0.2
+image_mean = np.array([127, 127, 127])  # Mean values for image normalization across RGB channels.
+image_std = 128.0   # Standard deviation for image normalization.
+iou_threshold = 0.3 # Threshold for Intersection over Union (IoU) metric to determine bounding box matches.
+center_variance = 0.1   # Scaling factor for predicted bounding box center coordinates.
+size_variance = 0.2 # Scaling factor for predicted bounding box dimensions.
 min_boxes = [
     [10.0, 16.0, 24.0], 
     [32.0, 48.0], 
     [64.0, 96.0], 
     [128.0, 192.0, 256.0]
-]
-strides = [8.0, 16.0, 32.0, 64.0]
-threshold = 0.5
+]   # Minimum bounding box dimensions for objects of different sizes.
+strides = [8.0, 16.0, 32.0, 64.0]   # Control the scale of the feature maps according to the image size..
+threshold = 0.5 # Confidence threshold for object detection.
 
 def define_img_size(image_size):
-    shrinkage_list = []
+    '''
+    Calculate feature map dimensions based on the provided image size and a set of predefined stride values.
+    These feature map dimensions reflect the expected output dimensions of CNN layers for varying scales of the input image.
+    The priors in SSD provide an efficient way to simultaneously predict multiple bounding boxes and their associated class
+    scores in a single forward pass of the network, enabling real-time object detection.
+    '''
+    shrinkage_list = [] # replicates the `strides` list for each element in the `image_size` list
     feature_map_w_h_list = []
     for size in image_size:
         feature_map = [int(ceil(size / stride)) for stride in strides]
@@ -35,15 +41,19 @@ def define_img_size(image_size):
 
     for i in range(0, len(image_size)):
         shrinkage_list.append(strides)
+        
     priors = generate_priors(
         feature_map_w_h_list, shrinkage_list, image_size, min_boxes
     )
-    return priors
+    return priors   # predicted the multiple bounding boxes and its class
 
 
 def generate_priors(
     feature_map_list, shrinkage_list, image_size, min_boxes
 ):
+    '''
+    Utilize the feaure map, shrinkage list, image size and min boxes to create and return the desired prior bounding boxes.
+    '''
     priors = []
     for index in range(0, len(feature_map_list[0])):
         scale_w = image_size[0] / shrinkage_list[0][index]
