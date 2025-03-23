@@ -23,7 +23,7 @@ min_boxes = [
     [64.0, 96.0], 
     [128.0, 192.0, 256.0]
 ]   # Minimum bounding box dimensions for objects of different sizes.
-strides = [8.0, 16.0, 32.0, 64.0]   # Control the scale of the feature maps according to the image size..
+strides = [8.0, 16.0, 32.0, 64.0]   # Control the scale of the feature maps according to the image size. Determines how much the filter shifts after each operation.
 threshold = 0.5 # Confidence threshold for object detection.
 
 def define_img_size(image_size):
@@ -34,18 +34,18 @@ def define_img_size(image_size):
     scores in a single forward pass of the network, enabling real-time object detection.
     '''
     shrinkage_list = [] # replicates the `strides` list for each element in the `image_size` list
-    feature_map_w_h_list = []
+    feature_map_w_h_list = []   # Calculate feature map dimensions based on the provided image size and a set of predefined stride values.
     for size in image_size:
-        feature_map = [int(ceil(size / stride)) for stride in strides]
+        feature_map = [int(ceil(size / stride)) for stride in strides]  # ceil rounds a decimal number up to the nearest integer.
         feature_map_w_h_list.append(feature_map)
 
-    for i in range(0, len(image_size)):
+    for _ in range(0, len(image_size)):
         shrinkage_list.append(strides)
-        
+
     priors = generate_priors(
         feature_map_w_h_list, shrinkage_list, image_size, min_boxes
     )
-    return priors   # predicted the multiple bounding boxes and its class
+    return priors   # predicted the multiple bounding boxes and their class scores in a single forward pass of the network
 
 
 def generate_priors(
@@ -77,10 +77,14 @@ def generate_priors(
 
 
 def hard_nms(box_scores, iou_threshold, top_k=-1, candidate_size=200):
+    '''
+    Hard Non-Maximum Suppression processes `box_scores` with parameters like `iou_threshold`, `top_k`, and `candidate_size`.
+    It selects high-scoring, non-overlapping boxes through looping and IoU computation.
+    '''
     scores = box_scores[:, -1]
     boxes = box_scores[:, :-1]
     picked = []
-    indexes = np.argsort(scores)
+    indexes = np.argsort(scores)    # Order the scores from the bigger to lower
     indexes = indexes[-candidate_size:]
     while len(indexes) > 0:
         current = indexes[-1]
@@ -95,16 +99,25 @@ def hard_nms(box_scores, iou_threshold, top_k=-1, candidate_size=200):
             np.expand_dims(current_box, axis=0),
         )
         indexes = indexes[iou <= iou_threshold]
-    return box_scores[picked, :]
+    return box_scores[picked, :]    # refined subset of boxes, improving object detection accuracy.
 
 
 def area_of(left_top, right_bottom):
+    '''
+    Given the left top and the right bototn, it calculate the area of the bounding box
+    It subtracts the top-left coordinates from the bottom-right coordinates to calculate the width and height of the rectangle ensuring that aren't negative.'''
     hw = np.clip(right_bottom - left_top, 0.0, None)
     return hw[..., 0] * hw[..., 1]
 
 
 def iou_of(boxes0, boxes1, eps=1e-5):
-    overlap_left_top = np.maximum(boxes0[..., :2], boxes1[..., :2])
+    '''
+    IOU is the ratio of the area of overlap between two bounding boxes to the area of their union.
+    Mathematically is the Area Of Intersection divided by the area of union.
+    boxes0 and boxes1 are the bounding boxes and eps is a  small value added to the denominator to avoid division by zero.
+    '''
+    # Calculate the coordinates of the overlaping region, the intersection of the two boxes
+    overlap_left_top = np.maximum(boxes0[..., :2], boxes1[..., :2]) # x_mas and y_max of the overlaping region
     overlap_right_bottom = np.minimum(boxes0[..., 2:], boxes1[..., 2:]) 
 
     overlap_area = area_of(overlap_left_top, overlap_right_bottom)
@@ -122,59 +135,93 @@ def predict(
     iou_threshold=0.3, 
     top_k=-1
 ):
+    # Extract the first batch of boxes and confidences
     boxes = boxes[0]
     confidences = confidences[0]
+
+    # Lists to store the final selected boxes and their corresponding labels
     picked_box_probs = []
     picked_labels = []
+
+    # Iterate over each class (starting from 1, skipping the background class)
     for class_index in range(1, confidences.shape[1]):
+        # Extract the confidence scores for the current class
         probs = confidences[:, class_index]
+
+        # Create a mask for boxes with confidence scores above the threshold
         mask = probs > prob_threshold
         probs = probs[mask]
+
+        # Skip if no boxes meet the confidence threshold
         if probs.shape[0] == 0:
             continue
+
+        # Select the subset of boxes that meet the confidence threshold
         subset_boxes = boxes[mask, :]
+
+        # Concatenate the boxes and their corresponding confidence scores
         box_probs = np.concatenate(
             [subset_boxes, probs.reshape(-1, 1)], axis=1
         )
+
+        # Apply Non-Maximum Suppression (NMS) to remove overlapping boxes
         box_probs = hard_nms(box_probs,
                              iou_threshold=iou_threshold,
                              top_k=top_k,
                              )
+        
+        # Append the filtered boxes and their labels
         picked_box_probs.append(box_probs)
         picked_labels.extend([class_index] * box_probs.shape[0])
+    
+    # If no boxes were picked, return empty arrays
     if not picked_box_probs:
         return np.array([]), np.array([]), np.array([])
+    
+    # Concatenate all picked boxes into a single array
     picked_box_probs = np.concatenate(picked_box_probs)
+
+    # Scale the box coordinates back to the original image dimensions
     picked_box_probs[:, 0] *= width
     picked_box_probs[:, 1] *= height
     picked_box_probs[:, 2] *= width
     picked_box_probs[:, 3] *= height
+
+    # Return the final boxes, labels, and confidence scores
     return (
-        picked_box_probs[:, :4].astype(np.int32), 
-        np.array(picked_labels), 
-        picked_box_probs[:, 4]
+        picked_box_probs[:, :4].astype(np.int32),   # Bounding box coordinates
+        np.array(picked_labels),    # Class labels
+        picked_box_probs[:, 4]  # Confidence scores
     )
 
 
-def convert_locations_to_boxes(locations, priors, center_variance,
-                               size_variance):
+def convert_locations_to_boxes(locations, priors, center_variance, size_variance):
+    # Convert predicted offsets to bounding box coordinates based on prior boxes
     if len(priors.shape) + 1 == len(locations.shape):
+        # Expand dimensions of priors if necessary for broadcasting
         priors = np.expand_dims(priors, 0)
     return np.concatenate([
+        # Calculate center coordinates (cx, cy)
         locations[..., :2] * center_variance * priors[..., 2:] + priors[..., :2],
+        # Calculate width and height (w, h)
         np.exp(locations[..., 2:] * size_variance) * priors[..., 2:]
     ], axis=len(locations.shape) - 1)
 
 
 def center_form_to_corner_form(locations):
+    # Convert bounding box coordinates from center form (cx, cy, w, h)
+    # to corner form (x_min, y_min, x_max, y_max)
     return np.concatenate(
-        [locations[..., :2] - locations[..., 2:] / 2,
-         locations[..., :2] + locations[..., 2:] / 2], 
+        [
+            locations[..., :2] - locations[..., 2:] / 2,  # Top-left corner
+            locations[..., :2] + locations[..., 2:] / 2   # Bottom-right corner
+        ], 
         len(locations.shape) - 1
     )
 
 
 def FER_live_cam():
+    # Dictionary mapping emotion indices to labels
     emotion_dict = {
         0: 'neutral', 
         1: 'happiness', 
@@ -185,47 +232,61 @@ def FER_live_cam():
         6: 'fear'
     }
 
-    # cap = cv2.VideoCapture('video3.mp4')
+    # Open webcam (or replace with a video file path)
     cap = cv2.VideoCapture(0)
 
+    # Get frame dimensions
     frame_width = int(cap.get(3))
     frame_height = int(cap.get(4))
     size = (frame_width, frame_height)
+
+    # Initialize video writer to save the output
     result = cv2.VideoWriter('infer2-test.avi', 
                          cv2.VideoWriter_fourcc(*'MJPG'),
                          10, size)
 
-    # Read ONNX model
-    model = 'onnx_model.onnx'
+    # Load ONNX model for emotion detection
     model = cv2.dnn.readNetFromONNX('/Users/bernardoquindimil/Code/Berniquindimil/Proyect/Custom_VGG13/emotion-ferplus-8.onnx')
     
-    # Read the Caffe face detector.
+    # Load Caffe face detector
     model_path = '/Users/bernardoquindimil/Code/Berniquindimil/Proyect/Custom_VGG13/RFB-320/RFB-320.caffemodel'
     proto_path = '/Users/bernardoquindimil/Code/Berniquindimil/Proyect/Custom_VGG13/RFB-320/RFB-320.prototxt'
     net = dnn.readNetFromCaffe(proto_path, model_path)
+
+    # Define input size for the face detector
     input_size = [320, 240]
     width = input_size[0]
     height = input_size[1]
+
+    # Generate prior boxes for object detection
     priors = define_img_size(input_size)
 
     while cap.isOpened():
+        # Read a frame from the webcam
         ret, frame = cap.read()
         if ret:
             img_ori = frame
-            #print("frame size: ", frame.shape)
+
+            # Resize and preprocess the frame for the face detector
             rect = cv2.resize(img_ori, (width, height))
             rect = cv2.cvtColor(rect, cv2.COLOR_BGR2RGB)
             net.setInput(dnn.blobFromImage(
                 rect, 1 / image_std, (width, height), 127)
             )
+
+            # Perform face detection
             start_time = time.time()
             boxes, scores = net.forward(["boxes", "scores"])
             boxes = np.expand_dims(np.reshape(boxes, (-1, 4)), axis=0)
             scores = np.expand_dims(np.reshape(scores, (-1, 2)), axis=0)
+
+            # Convert box predictions to corner form
             boxes = convert_locations_to_boxes(
                 boxes, priors, center_variance, size_variance
             )
             boxes = center_form_to_corner_form(boxes)
+
+            # Perform Non-Maximum Suppression (NMS) and filter predictions
             boxes, labels, probs = predict(
                 img_ori.shape[1], 
                 img_ori.shape[0], 
@@ -233,21 +294,38 @@ def FER_live_cam():
                 boxes, 
                 threshold
             )
+
+            # Convert frame to grayscale for emotion detection
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+            # Iterate over detected boxes
             for (x1, y1, x2, y2) in boxes:
+                # Calculate width and height of the bounding box
                 w = x2 - x1
                 h = y2 - y1
-                cv2.rectangle(frame, (x1,y1), (x2, y2), (255,0,0), 2)
+
+                # Draw the bounding box on the frame
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+
+                # Extract and preprocess the face region for emotion detection
                 resize_frame = cv2.resize(
                     gray[y1:y1 + h, x1:x1 + w], (64, 64)
                 )
                 resize_frame = resize_frame.reshape(1, 1, 64, 64)
+
+                # Perform emotion detection
                 model.setInput(resize_frame)
                 output = model.forward()
+
+                # Calculate FPS
                 end_time = time.time()
                 fps = 1 / (end_time - start_time)
                 print(f"FPS: {fps:.1f}")
+
+                # Get the predicted emotion label
                 pred = emotion_dict[list(output[0]).index(max(output[0]))]
+
+                # Draw the emotion label on the frame
                 cv2.rectangle(
                     img_ori, 
                     (x1, y1), 
@@ -259,7 +337,7 @@ def FER_live_cam():
                 cv2.putText(
                     frame, 
                     pred, 
-                    (x1, y1-10), 
+                    (x1, y1 - 10), 
                     cv2.FONT_HERSHEY_SIMPLEX, 
                     0.8, 
                     (215, 5, 247), 
@@ -267,14 +345,19 @@ def FER_live_cam():
                     lineType=cv2.LINE_AA
                 )
 
+            # Write the processed frame to the output video
             result.write(frame)
         
+            # Display the frame in a window
             cv2.imshow('frame', frame)
+
+            # Break the loop if 'q' is pressed
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
         else:
             break
 
+    # Release resources
     cap.release()
     result.release()
     cv2.destroyAllWindows()
