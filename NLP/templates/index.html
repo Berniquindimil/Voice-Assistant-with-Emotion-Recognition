@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emotion Classifier Chatbot</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background-color: #f9f9f9;
+        }
+        h1 {
+            color: #333;
+        }
+        form {
+            margin-bottom: 20px;
+        }
+        input[type="text"] {
+            padding: 10px;
+            width: 300px;
+            font-size: 16px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        h2 {
+            color: #333;
+            font-size: 20px;
+        }
+        .chat-box {
+            margin-top: 30px;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .user-message {
+            color: #2c3e50;
+            font-weight: bold;
+        }
+        .bot-reply {
+            color: #3498db;
+        }
+    </style>
+</head>
+<body>
+    <h1>Emotion Classifier Chatbot</h1>
+    <form method="post" action="/">
+        <label for="text">Enter your message:</label>
+        <input type="text" name="text" id="text" required>
+        <button type="submit">Send</button>
+    </form>
+
+    <!-- Display the conversation if there's one -->
+    {% if user_message %}
+        <div class="chat-box">
+            <p class="user-message">You: {{ user_message }}</p>
+            <p class="bot-reply">Bot: {{ bot_reply }}</p>
+        </div>
+    {% endif %}
+</body>
+</html>
