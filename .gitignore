@@ -1,2 +1,2 @@
 *.avi
-*.jsonl
+NLP/data/movie-corpus/utterances.jsonl
