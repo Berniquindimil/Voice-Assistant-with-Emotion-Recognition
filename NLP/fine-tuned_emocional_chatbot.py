@@ -1,70 +1,41 @@
-from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
-from peft import get_peft_model, LoraConfig, TaskType
-from transformers import Trainer, TrainingArguments, DataCollatorForLanguageModeling
+from peft import PeftModel, PeftConfig
+import torch
 
-# Load dataset
-dataset = load_dataset("LuangMV97/Empathetic_counseling_Dataset")
+# Path where your LoRA fine-tuned model is saved
+peft_model_path = "./llama-therapy-lora"
 
-# Load model and tokenizer (ensure you're loading the right model)
-model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-tokenizer = AutoTokenizer.from_pretrained(model_id)
-model = AutoModelForCausalLM.from_pretrained(model_id)
+# Load LoRA configuration to retrieve the base model name
+peft_config = PeftConfig.from_pretrained(peft_model_path)
 
-# Apply LoRA (Low-Rank Adaptation) for efficient fine-tuning
-lora_config = LoraConfig(
-    r=4,
-    lora_alpha=16,
-    target_modules=["q_proj", "v_proj"],
-    lora_dropout=0.1,
-    bias="none",
-    task_type=TaskType.CAUSAL_LM
-)
-model = get_peft_model(model, lora_config)
-
-# Tokenize dataset
-def tokenize_function(examples):
-    # Combine input and label into a dialogue-style prompt
-    prompts = [f"User: {inp}\nTherapist: {resp}" for inp, resp in zip(examples["input"], examples["label"])]
-    
-    # Tokenize with truncation and padding to ensure uniform input size
-    tokenized = tokenizer(prompts, truncation=True, padding="max_length", max_length=256)
-
-    # Set the input_ids as labels for causal language modeling
-    tokenized["labels"] = tokenized["input_ids"].copy()
-
-    return tokenized
-
-tokenized_dataset = dataset.map(
-    tokenize_function, 
-    batched=True, 
-    remove_columns=dataset["train"].column_names  # Remove raw text columns to avoid tensor conversion issues
+# Load the base model (e.g., TinyLlama) using the config
+base_model = AutoModelForCausalLM.from_pretrained(
+    peft_config.base_model_name_or_path,
+    torch_dtype=torch.float16,
+    device_map="auto"
 )
 
-# Define training arguments
-training_args = TrainingArguments(
-    output_dir="./llama-therapy-lora",
-    per_device_train_batch_size=1,
-    num_train_epochs=3,
-    learning_rate=2e-4,
-    logging_steps=10,
-    save_strategy="epoch",
-    fp16=False,  # no GPU, use float32
-    report_to="none"
+# Load the fine-tuned LoRA adapter weights on top of the base model
+model = PeftModel.from_pretrained(base_model, peft_model_path)
+
+# Load tokenizer that matches the base model
+tokenizer = AutoTokenizer.from_pretrained(peft_config.base_model_name_or_path)
+
+# Define input text (simulating a user prompt)
+input_text = "I'm feeling really lost and overwhelmed lately."
+
+# Tokenize input and move it to the same device as the model
+inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
+
+# Generate a response from the model using sampling
+outputs = model.generate(
+    **inputs,
+    max_new_tokens=100,
+    do_sample=True,
+    top_p=0.9,
+    temperature=0.7,
+    repetition_penalty=1.2
 )
 
-# Initialize Trainer
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=tokenized_dataset["train"],
-    tokenizer=tokenizer,
-    data_collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
-)
-
-# Train the model
-trainer.train()
-
-# Save the model and tokenizer
-model.save_pretrained("./llama-therapy-lora")
-tokenizer.save_pretrained("./llama-therapy-lora")
+# Decode and print the output text, skipping special tokens
+print(tokenizer.decode(outputs[0], skip_special_tokens=True))
