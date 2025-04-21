@@ -25,7 +25,7 @@ model = get_peft_model(model, lora_config)
 # Tokenize dataset
 def tokenize_function(examples):
     # Combine input and label into a dialogue-style prompt
-    prompts = [f"User: {inp}\nTherapist: {resp}" for inp, resp in zip(examples["input"], examples["label"])]
+    prompts = [f"User: {inp}\nTherapist:" for inp in examples["input"]]
     
     # Tokenize with truncation and padding to ensure uniform input size
     tokenized = tokenizer(prompts, truncation=True, padding="max_length", max_length=256)
@@ -63,19 +63,8 @@ trainer = Trainer(
 )
 
 # Train the model
-#trainer.train()
-
-# Mostrar algunos ejemplos del dataset ya tokenizado
-for i in range(3):
-    example = tokenized_dataset["train"][i]
-    decoded_input = tokenizer.decode(example["input_ids"], skip_special_tokens=True)
-    decoded_label = tokenizer.decode(example["labels"], skip_special_tokens=True)
-
-    print(f"\n--- Example {i+1} ---")
-    print(f"Decoded Input:\n{decoded_input}")
-    print(f"Decoded Label:\n{decoded_label}")
-
+trainer.train()
 
 # Save the model and tokenizer
-#model.save_pretrained("./llama-therapy-lora")
-#tokenizer.save_pretrained("./llama-therapy-lora")
+model.save_pretrained("./llama-therapy-lora2")
+tokenizer.save_pretrained("./llama-therapy-lora2")

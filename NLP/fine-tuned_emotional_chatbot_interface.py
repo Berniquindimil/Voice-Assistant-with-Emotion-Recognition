@@ -3,15 +3,12 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 
 # Load the fine-tuned model and tokenizer
-model_path = "./llama-therapy-lora"  # Path to your fine-tuned model
+model_path = "./dialogpt-therapy-lora"
 tokenizer = AutoTokenizer.from_pretrained(model_path)
 model = AutoModelForCausalLM.from_pretrained(model_path)
 
-# Select the appropriate device for Apple Silicon (M1, M2...)
 if torch.backends.mps.is_available():
-    device = torch.device("mps")  # Apple Metal Performance Shader
-elif torch.cuda.is_available():
-    device = torch.device("cuda")
+    device = torch.device("mps")
 else:
     device = torch.device("cpu")
 
@@ -27,7 +24,7 @@ system_prompt = (
 # Set up the Streamlit interface
 st.set_page_config(page_title="Therapy Chatbot", page_icon="💬")
 st.title("💬 Therapy Chatbot")
-st.write("A fine-tuned TinyLLaMA model for empathetic conversations.")
+st.write("A fine-tuned DialoGPT model for empathetic conversations.")
 
 # Initialize the session state to store the conversation history
 if "history" not in st.session_state:
@@ -38,38 +35,44 @@ user_input = st.text_input("You:", key="input")
 
 # Generate and display the chatbot's response
 if user_input:
-    # Add the user's message to the conversation history
+    # Append user message to history
     st.session_state.history.append(f"User: {user_input}")
 
-    # Construct the prompt using system prompt and conversation history
+    # Build the full prompt including system instruction + conversation
     prompt = system_prompt + "\n".join(st.session_state.history) + "\nTherapist:"
 
-    # Tokenize and encode the prompt
-    input_ids = tokenizer(prompt, return_tensors="pt", truncation=True).input_ids.to(device)
+    # Tokenize the prompt, returning tensors and attention mask
+    inputs = tokenizer(
+        prompt,
+        return_tensors="pt",
+        truncation=True,
+        padding="longest"   # pad to the longest sequence in the batch
+    ).to(device)
 
-    # Generate a response using the model
+    # Generate a response, **passing in** input_ids and attention_mask
     output_ids = model.generate(
-        input_ids,
-        max_new_tokens=150,
-        pad_token_id=tokenizer.eos_token_id,
+        input_ids=inputs.input_ids,              # <— key fix
+        attention_mask=inputs.attention_mask,    # <— key fix
+        max_new_tokens=100,
         do_sample=True,
-        temperature=0.7,
-        top_p=0.9
+        temperature=0.6,
+        top_p=0.85,
+        repetition_penalty=1.3,
+        pad_token_id=tokenizer.eos_token_id      # ensure padding token is set
     )
 
-    # Decode and clean the model's output
-    response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    response = response.split("Therapist:")[-1].strip()
+    # Decode the full output and split off only the reply
+    full_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+    response = full_text.rsplit("Therapist:", 1)[-1].strip()
 
-    # Add the chatbot's response to the history
+    # Add assistant’s reply to history and display
     st.session_state.history.append(f"Therapist: {response}")
-
-    # Display the last few messages in the conversation
     for line in st.session_state.history[-6:]:
         if line.startswith("User:"):
             st.markdown(f"**{line}**")
         else:
-            st.markdown(f"{line}")
+            st.markdown(line)
+
 
 # Button to reset the conversation history
 if st.button("🔄 Reset conversation"):
