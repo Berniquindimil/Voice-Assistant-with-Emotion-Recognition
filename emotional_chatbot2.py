@@ -1,144 +1,110 @@
 import streamlit as st
-import lmstudio as lms
 import cv2
+import onnxruntime as ort
 import numpy as np
+import time
+import requests
 import os
-from PIL import Image
-import tensorflow as tf
 
-# --- Emotion detection setup ---
-def load_emotion_models():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    model_path = os.path.join(base_dir, 'CNN/model_weights.weights.h5')
-    
-    # Load the Keras model
-    if not os.path.exists(model_path):
-        st.error(f"Emotion model file not found: {model_path}")
-        st.stop()
-    
-    emotion_model = tf.keras.models.load_model(model_path)
+# Paths to SSD model files
+PROTOTXT_PATH = "Custom_VGG13/RFB-320/RFB-320.prototxt"
+CAFFEMODEL_PATH = "Custom_VGG13/RFB-320/RFB-320.caffemodel"
 
-    # Load the Haar Cascade classifier for face detection
-    face_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-    if not os.path.exists(face_cascade_path):
-        st.error(f"Haar Cascade face detection model not found!")
-        st.stop()
+# Verify that model files exist
+assert os.path.isfile(PROTOTXT_PATH), f"File not found: {PROTOTXT_PATH}"
+assert os.path.isfile(CAFFEMODEL_PATH), f"File not found: {CAFFEMODEL_PATH}"
 
-    face_cascade = cv2.CascadeClassifier(face_cascade_path)
-    return emotion_model, face_cascade
+# Initialize ONNX model for emotion detection
+session = ort.InferenceSession("Custom_VGG13/emotion-ferplus-8.onnx")
 
-emotion_dict = {
-    0: 'neutral', 1: 'happiness', 2: 'surprise',
-    3: 'sadness', 4: 'anger', 5: 'disgust', 6: 'fear'
-}
+# Function to send chat requests to LM Studio
+def query_lmstudio(messages, model="llama-3.2-1b-instruct"):
+    url = "http://localhost:1234/v1/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": False
+    }
+    response = requests.post(url, headers=headers, json=payload)
+    return response.json()["choices"][0]["message"]["content"]
 
-# Preprocess face for Keras model
-def preprocess_image_for_model(face):
-    # Convert to grayscale and resize to (48, 48) - size for FER-2013 model
-    gray_face = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
-    gray_face = cv2.resize(gray_face, (48, 48))  # FER-2013 size
-    # Normalize pixel values and add batch/channel dimension
-    gray_face = np.expand_dims(gray_face, axis=0)  # Add batch dimension
-    gray_face = np.expand_dims(gray_face, axis=-1)  # Add channel dimension
-    gray_face = gray_face.astype('float32') / 255.0  # Normalize to [0, 1] range
-    return gray_face
+# Emotion labels
+emotion_labels = [
+    "neutral", "happiness", "surprise", "sadness",
+    "anger", "disgust", "fear", "contempt"
+]
 
-# Emotion detection using Haar Cascade and Keras model
-def detect_emotion_haar(frame, emotion_model, face_cascade):
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    
-    # Detect faces using Haar Cascade
-    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=5, minSize=(30, 30))
-    if len(faces) == 0:
-        st.warning("No faces detected.")
-        return None, frame
-    
-    for (x, y, w, h) in faces:
-        # Crop and process face
-        face = frame[y:y+h, x:x+w]
-        preprocessed_face = preprocess_image_for_model(face)
-        
-        # Use the Keras model to predict the emotion
-        emotion_probabilities = emotion_model.predict(preprocessed_face)
-        emotion_label = np.argmax(emotion_probabilities[0])  # Get the index of the highest probability
-        emotion = emotion_dict.get(emotion_label)
-        
-        # Draw bounding box around the face
-        cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
-        return emotion, frame
+# Function to detect emotion using SSD face detector
+def detect_emotion():
+    # Load the face detector
+    net = cv2.dnn.readNetFromCaffe(PROTOTXT_PATH, CAFFEMODEL_PATH)
 
-# --- Streamlit app ---
-st.set_page_config(page_title="Emotional Assistance")
-st.title("🗣️ Emotional Assistance Chatbot")
-
-# Load models
-if 'emotion_models' not in st.session_state:
-    st.session_state.emotion_model, st.session_state.face_cascade = load_emotion_models()
-
-# Initialize chatbot model
-if 'model' not in st.session_state:
-    st.session_state.model = lms.llm("llama-3.2-1b-instruct")
-
-# Build initial context
-if 'full_context' not in st.session_state:
-    base = "You are a professional therapist specializing in mental health."
-    st.session_state.full_context = [{"role":"system","content":base}]
-    st.session_state.messages = []
-
-# Camera capture and emotion detection
-def capture_and_detect():
-    # Capture the webcam feed
     cap = cv2.VideoCapture(0)
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+    time.sleep(2)  # Warm up the camera
 
-        # Detect emotion and draw face bounding box
-        emotion, frame_with_box = detect_emotion_haar(frame, st.session_state.emotion_model, st.session_state.face_cascade)
+    ret, frame = cap.read()
+    cap.release()
 
-        # Show the frame with bounding box and emotion
-        frame_rgb = cv2.cvtColor(frame_with_box, cv2.COLOR_BGR2RGB)
-        img_pil = Image.fromarray(frame_rgb)
-        st.image(img_pil, caption="Detected Emotion", use_container_width=True)
-        
-        if emotion:
-            return emotion
+    if not ret:
+        return "No face detected"
 
-# Capture emotion from webcam and update the context dynamically
-emotion = capture_and_detect()
+    (h, w) = frame.shape[:2]
+    blob = cv2.dnn.blobFromImage(
+        cv2.resize(frame, (300, 300)), 1.0,
+        (300, 300), (104.0, 177.0, 123.0)
+    )
 
-if emotion:
-    st.success(f"Detected emotion: {emotion}")
+    net.setInput(blob)
+    detections = net.forward()
 
-    # Update the context with detected emotion
-    if 'full_context' in st.session_state:
-        base = f"You are a professional therapist specializing in mental health. The user appears to be feeling {emotion}."
-        st.session_state.full_context = [{"role": "system", "content": base}]
-    
-    # Chat interface
-    for msg in st.session_state.messages:
-        with st.chat_message(msg['role']):
-            st.markdown(msg['content'])
+    # Select highest confidence detection
+    i = np.argmax(detections[0, 0, :, 2])
+    confidence = detections[0, 0, i, 2]
 
-    if user_input := st.chat_input("Say something..."):
-        st.session_state.full_context.append({"role": "user", "content": user_input})
-        st.session_state.messages.append({"role": "user", "content": user_input})
-        
-        # Combine conversation context
-        conv = ''
-        for m in st.session_state.full_context:
-            prefix = 'User:' if m['role'] == 'user' else 'Therapist:'
-            conv += f"{prefix} {m['content']}\n"
-        conv += "Therapist:"
-        
-        # Generate response using the model
-        resp = st.session_state.model.respond(conv)
-        st.session_state.messages.append({"role": "assistant", "content": resp})
-        
-        # Display assistant's message
-        with st.chat_message("assistant"):
-            st.markdown(resp)
+    if confidence > 0.5:
+        box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
+        (startX, startY, endX, endY) = box.astype("int")
+        face = frame[startY:endY, startX:endX]
 
-cap.release()
-cv2.destroyAllWindows()
+        # Preprocess face for emotion model
+        face_blob = cv2.resize(
+            cv2.cvtColor(face, cv2.COLOR_BGR2GRAY), (64, 64)
+        ).astype(np.float32)
+        face_blob = face_blob[np.newaxis, np.newaxis, :, :]  # (1,1,64,64)
+
+        outputs = session.run(None, {"Input3": face_blob})
+        emotion_idx = np.argmax(outputs[0])
+        return emotion_labels[emotion_idx]
+
+    return "No face detected"
+
+# Streamlit interface
+st.title("Emotional Chatbot Therapist")
+
+# Detect emotion once per session
+if "emotion" not in st.session_state:
+    st.session_state.emotion = detect_emotion()
+
+# Show detected emotion
+st.info(f"Detected Emotion: **{st.session_state.emotion}**")
+
+# Compose system prompt
+emotion_prompt = (
+    f"You are a helpful and empathetic therapist. "
+    f"The user seems to be feeling {st.session_state.emotion}. "
+    "Adjust your tone accordingly."
+)
+
+# User input field
+user_input = st.text_input("You:", "")
+
+# On user message, query LM Studio and display response
+if user_input:
+    response = query_lmstudio(
+        messages=[
+            {"role": "system", "content": emotion_prompt},
+            {"role": "user", "content": user_input}
+        ]
+    )
+    st.markdown(f"**Therapist:** {response}")
