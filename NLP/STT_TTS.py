@@ -1,45 +1,70 @@
+# STT_TTS.py
 import whisper
 import pyttsx3
 import streamlit as st
-import speech_recognition as sr
-import tempfile
 
-def recognize_audio_from_file(audio_file):
-    recognizer = sr.Recognizer()
-    with sr.AudioFile(audio_file) as source:
-        audio_data = recognizer.record(source)
-        try:
-            return recognizer.recognize_google(audio_data)
-        except sr.UnknownValueError:
-            return "Sorry, I couldn't understand what you said."
-        except sr.RequestError:
-            return "Speech recognition service error."
+import numpy as np
+import librosa
 
-def speech_to_text():
-    model = whisper.load_model("base")  # Load the Whisper model
-    st.write("Listening...")
-    audio = st.audio(st.audio_file, format="audio/wav")
-    result = model.transcribe(audio)
-    user_input = result["text"]
-    st.write(f"You said: {user_input}")
-    return user_input
+@st.cache_resource
+def get_whisper_model():
+    """Cache and return the Whisper model instance."""
+    return whisper.load_model("base")
 
-def text_to_speech(text, emotion):
-    engine = pyttsx3.init()
-    voices = engine.getProperty('voices')
+
+def speech_to_text(audio_file_path: str) -> str:
+    """Transcribe the given WAV file to text using Whisper."""
+    model = get_whisper_model()
+    result = model.transcribe(audio_file_path)
+    return result.get("text", "").strip()
+
+def extract_features(data, sampling_rate):
+    # ZCR
+    result = np.array([])
+    zcr = np.mean(librosa.feature.zero_crossing_rate(y=data).T, axis=0)
+    result=np.hstack((result, zcr)) # stacking horizontally
+
+    # Chroma_stft
+    stft = np.abs(librosa.stft(data))
+    chroma_stft = np.mean(librosa.feature.chroma_stft(S=stft, sr=sampling_rate).T, axis=0)
+    result = np.hstack((result, chroma_stft)) # stacking horizontally
+
+    # MFCC
+    mfcc = np.mean(librosa.feature.mfcc(y=data, sr=sampling_rate).T, axis=0)
+    result = np.hstack((result, mfcc)) # stacking horizontally
+
+    # Root Mean Square Value
+    rms = np.mean(librosa.feature.rms(y=data).T, axis=0)
+    result = np.hstack((result, rms)) # stacking horizontally
+
+    # MelSpectogram
+    mel = np.mean(librosa.feature.melspectrogram(y=data, sr=sampling_rate).T, axis=0)
+    result = np.hstack((result, mel)) # stacking horizontally
     
-    # Change tone or voice based on detected emotion
+    return result
+
+@st.cache_resource
+def get_tts_engine():
+    """Cache and return the text-to-speech engine."""
+    engine = pyttsx3.init()
+    return engine
+
+
+def text_to_speech(text: str, emotion: str):
+    """Convert text to speech with voice adjustments based on emotion."""
+    engine = get_tts_engine()
+    voices = engine.getProperty('voices')
+    # Adjust rate, volume, and voice based on detected emotion
     if emotion == "happy":
-        engine.setProperty('rate', 150)  # Faster speech
-        engine.setProperty('volume', 1)  # Full volume
-        engine.setProperty('voice', voices[1].id)  # Female voice
+        engine.setProperty('rate', 150)
+        engine.setProperty('volume', 1.0)
+        engine.setProperty('voice', voices[1].id)
     elif emotion == "sad":
-        engine.setProperty('rate', 120)  # Slower speech
-        engine.setProperty('volume', 0.8)  # Lower volume
-        engine.setProperty('voice', voices[0].id)  # Male voice
+        engine.setProperty('rate', 120)
+        engine.setProperty('volume', 0.8)
+        engine.setProperty('voice', voices[0].id)
     else:
         engine.setProperty('rate', 130)
         engine.setProperty('volume', 0.9)
-    
     engine.say(text)
     engine.runAndWait()
