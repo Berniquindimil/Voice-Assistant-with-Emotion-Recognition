@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 from Computer_vision.CNN.CNN_model import model
 from Intelligent_system.EmotionAgent import EmotionAgent
+from NLP.STT_TTS import text_to_speech, speech_to_text
 import lmstudio as lms
 import tensorflow as tf
 
@@ -76,3 +77,15 @@ if user_input := st.chat_input("What's on your mind?"):
     response = st.session_state.agent.get_response()
     with st.chat_message("assistant"):
         st.markdown(response)
+
+
+# Button to trigger speech recognition
+if st.button("Speak to Agent"):
+    user_input = speech_to_text()
+    if user_input:
+        st.chat_message("user").markdown(user_input)
+        st.session_state.agent.add_user_input(user_input)
+        response = st.session_state.agent.get_response()
+        with st.chat_message("assistant"):
+            st.markdown(response)
+            
