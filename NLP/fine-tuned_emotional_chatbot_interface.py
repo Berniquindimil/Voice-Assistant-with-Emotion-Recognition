@@ -3,7 +3,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 
 # Load the fine-tuned model and tokenizer
-model_path = "./dialogpt-therapy-lora"
+model_path = "/Users/bernardoquindimil/Code/Berniquindimil/Proyect/NLP/Fine-tuned_llm_models/dialogpt-therapy-lora"
 tokenizer = AutoTokenizer.from_pretrained(model_path)
 model = AutoModelForCausalLM.from_pretrained(model_path)
 
