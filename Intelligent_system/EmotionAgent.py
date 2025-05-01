@@ -1,4 +1,4 @@
-# --- Updated EmotionAgent Definition ---
+# EmotionAgent.py
 
 class EmotionAgent:
     def __init__(self, llm_model, face_emotion="neutral", speech_emotion="neutral"):

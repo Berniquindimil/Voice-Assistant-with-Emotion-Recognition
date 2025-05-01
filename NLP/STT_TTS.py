@@ -1,7 +1,12 @@
 # STT_TTS.py
 import whisper
-import pyttsx3
 import streamlit as st
+
+import sounddevice as sd
+import tempfile
+import os
+from gtts import gTTS
+from pydub import AudioSegment
 
 import numpy as np
 import librosa
@@ -9,7 +14,7 @@ import librosa
 @st.cache_resource
 def get_whisper_model():
     """Cache and return the Whisper model instance."""
-    return whisper.load_model("base")
+    return whisper.load_model("base.en")
 
 
 def speech_to_text(audio_file_path: str) -> str:
@@ -43,28 +48,47 @@ def extract_features(data, sampling_rate):
     
     return result
 
-@st.cache_resource
-def get_tts_engine():
-    """Cache and return the text-to-speech engine."""
-    engine = pyttsx3.init()
-    return engine
+# gTTS + pydub “same voice, different tone”
+EMOTION_SPEED = {
+    "happy":    1.1,
+    "sad":      0.85,
+    "angry":    0.90,
+    "fear":     0.85,
+    "surprise": 1.08,
+    "neutral":  1.00
+}
 
+def text_to_speech(text, emotion: str):
+    """
+    1) Coerce text to native str if needed.
+    2) Generate MP3 via gTTS into a temp file.
+    3) Load audio with pydub.
+    4) Adjust speed/pitch by frame rate.
+    5) Play with sounddevice.
+    """
+    # Ensure we have a Python string
+    if not isinstance(text, str):
+        text = getattr(text, 'text', None) or str(text)
 
-def text_to_speech(text: str, emotion: str):
-    """Convert text to speech with voice adjustments based on emotion."""
-    engine = get_tts_engine()
-    voices = engine.getProperty('voices')
-    # Adjust rate, volume, and voice based on detected emotion
-    if emotion == "happy":
-        engine.setProperty('rate', 150)
-        engine.setProperty('volume', 1.0)
-        engine.setProperty('voice', voices[1].id)
-    elif emotion == "sad":
-        engine.setProperty('rate', 120)
-        engine.setProperty('volume', 0.8)
-        engine.setProperty('voice', voices[0].id)
-    else:
-        engine.setProperty('rate', 130)
-        engine.setProperty('volume', 0.9)
-    engine.say(text)
-    engine.runAndWait()
+    # Write to a temporary file to avoid write_to_fp issues
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tf:
+        tts = gTTS(text=text, lang="en")
+        tts.save(tf.name)
+        temp_path = tf.name
+
+    try:
+        seg = AudioSegment.from_file(temp_path, format="mp3")
+        speed = EMOTION_SPEED.get(emotion, 1.0)
+        new_rate = int(seg.frame_rate * speed)
+        seg2 = seg._spawn(seg.raw_data, overrides={"frame_rate": new_rate})
+        seg2 = seg2.set_frame_rate(44100)
+
+        samples = np.array(seg2.get_array_of_samples(), dtype="float32")
+        samples /= np.iinfo(seg2.array_type).max
+        sd.play(samples, samplerate=seg2.frame_rate)
+        sd.wait()
+    finally:
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
