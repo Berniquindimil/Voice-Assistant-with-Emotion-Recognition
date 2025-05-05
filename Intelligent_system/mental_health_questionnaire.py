@@ -1,4 +1,4 @@
-# mental_health_questionnaire.py
+# Fix for mental_health_questionnaire.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -135,6 +135,9 @@ class MentalHealthQuestionnaire:
         
         # If assessment was just completed, show results
         if st.session_state.assessment_completed:
+            # FIX: Make sure to update the questionnaire_history before showing results
+            if st.session_state.current_questionnaire or st.session_state.questionnaire_results:
+                self.complete_questionnaire()
             self.show_assessment_results()
             return
         
@@ -292,11 +295,15 @@ class MentalHealthQuestionnaire:
             }
             st.session_state.questionnaire_history.append(single_result)
         
-        # Reset the questionnaire state
+        # Debug statement to confirm history was updated
+        print(f"Assessment added to history. Total assessments: {len(st.session_state.questionnaire_history)}")
+        
+        # Reset the questionnaire state but keep assessment_completed as True
         st.session_state.show_questionnaire = False
         st.session_state.current_questionnaire = None
         st.session_state.questionnaire_results = {}
-        st.session_state.assessment_completed = True
+        
+        # Don't reset assessment_completed here, we need it to show results
 
     def show_assessment_results(self):
         """Shows the results of the most recent assessment"""
@@ -305,6 +312,8 @@ class MentalHealthQuestionnaire:
         
         if not st.session_state.questionnaire_history:
             st.error("No assessment results found.")
+            # DEBUG: Add information about what happened
+            st.info("Debug info: The questionnaire was completed but results weren't saved to history.")
             return
         
         latest_assessment = st.session_state.questionnaire_history[-1]
