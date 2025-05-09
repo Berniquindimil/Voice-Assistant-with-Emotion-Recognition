@@ -1,4 +1,4 @@
-# Fix for mental_health_questionnaire.py
+# mental_health_questionnaire.py
 import streamlit as st
 import pandas as pd
 import numpy as np
